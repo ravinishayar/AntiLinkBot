@@ -1,8 +1,18 @@
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                             '..')))  # ✅ Fix for import
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
+from bot_data import USERS  # ✅ Import working now
+
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    USERS.add(update.effective_user.id)  # ✅ Track user
+
     keyboard = [[
         InlineKeyboardButton("➕ Add me to your group",
                              url="https://t.me/LinksDeleteBot?startgroup=true")
