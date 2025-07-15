@@ -1,58 +1,64 @@
 import os
 import re
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+from pyrogram import Client, filters
+from pyrogram.types import Message
 
-from handlers.start import start_handler  # ✅ start handler import
-from bot_data import USERS, GROUPS
+from handlers.group_add import welcome_on_group_add
+from handlers.start import start_handler
+from bot_data import save_user, save_group, get_total_stats
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # ✅ Set in Replit Secrets
+# 🔑 Environment Variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Set in Replit/Secrets
+API_ID = int(os.getenv("API_ID"))  # Your API_ID
+API_HASH = os.getenv("API_HASH")  # Your API_HASH
 
-# 🔗 Link Regex
+# 🔗 Link Regex for Anti-Link
 LINK_REGEX = r"(t\.me\/|https:\/\/t\.me\/|@[\w\d_]+)"
 
-# 🔢 Track users and groups
-USERS = set()
-GROUPS = set()
+# ✅ Initialize Pyrogram Client
+app = Client("AntiLinkBot",
+             bot_token=BOT_TOKEN,
+             api_id=API_ID,
+             api_hash=API_HASH)
 
 
-# 🧹 Delete Telegram links from group messages
-async def delete_links(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.effective_message
-    if message and re.search(LINK_REGEX, message.text):
-        chat = update.effective_chat
-        if chat.type in ["group", "supergroup"]:
-            GROUPS.add(chat.id)  # 📌 Track group ID
-        try:
-            await message.delete()
-        except Exception as e:
-            print(f"Error deleting message: {e}")
+# 🧹 Auto-delete Telegram links in group messages
+@app.on_message(filters.text & filters.group & filters.regex(LINK_REGEX))
+async def delete_links(client: Client, message: Message):
+    chat_id = message.chat.id
+    save_group(chat_id)  # ✅ Save group in MongoDB
+    try:
+        await message.delete()
+        print(f"✅ Deleted link in {chat_id}")
+    except Exception as e:
+        print(f"❌ Error deleting message: {e}")
 
 
-# 📊 /stats command handler
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    USERS.add(
-        update.effective_user.id)  # ✅ Ensure user is counted if using /stats
-    text = f"📊 Bot Stats:\n\n👥 Users: {len(USERS)}\n👨‍👩‍👧‍👦 Groups: {len(GROUPS)}"
-    await update.message.reply_text(text)
+# 📊 /stats command handler (Private Chat only)
+@app.on_message(filters.command("stats") & filters.private)
+async def stats_command(client: Client, message: Message):
+    user_id = message.from_user.id
+    save_user(user_id)  # ✅ Save user in MongoDB
+    total_users, total_groups = get_total_stats()
+
+    text = ("📊 **Bot Stats:**\n\n"
+            f"👤 **Users:** `{total_users}`\n"
+            f"👥 **Groups:** `{total_groups}`")
+    await message.reply_text(text, quote=True)
 
 
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+# 🚀 /start command handler (Private Chat only)
+@app.on_message(filters.command("start") & filters.private)
+async def start_command(client: Client, message: Message):
+    await start_handler(client, message)
 
-    app.add_handler(CommandHandler("start", start_handler))
-    app.add_handler(CommandHandler("stats", stats_command))  # ✅ /stats added
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & filters.ChatType.GROUPS & filters.Regex(LINK_REGEX),
-            delete_links,
-        ))
 
-    print("🤖 Bot started.")
-    app.run_polling()
+# 👋 Welcome message when bot is added to group
+@app.on_message(filters.group & filters.service)
+async def group_service_handler(client: Client, message: Message):
+    await welcome_on_group_add(client, message)
+
+
+# ✅ Run Bot
+print("🤖 Bot started (Pyrogram)...")
+app.run()
